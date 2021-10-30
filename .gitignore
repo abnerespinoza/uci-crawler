@@ -108,3 +108,8 @@ venv.bak/
 
 *.full.py
 *.shelve
+
+/Logs
+/pages
+/records
+output.txt
