@@ -1,15 +1,48 @@
 import re
+import os
+import json
+import gzip
+import hashlib
+
+from pathlib import Path
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 
-# https://docs.python.org/3/library/urllib.parse.html
 
-ics_sub = dict()
+PAGES_DIRECTORY = 'pages'
+
 visited = set()
+ics_sub = dict()
+
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
+
+
+def save_page(url, html):
+    Path(PAGES_DIRECTORY).mkdir(parents=True, exist_ok=True)
+    
+    # create hash from url (hash is irreversible)
+    hash_object = hashlib.sha256(url.encode())
+    hex_dig = hash_object.hexdigest()
+    
+    try:
+        decoded_html = html.decode()
+        
+        content = {
+            'url': url,
+            'html': decoded_html
+        }
+
+        # create page with hash as name, then compresses the data
+        with gzip.open(os.path.join(PAGES_DIRECTORY, str(hex_dig)), 'w') as fout:
+            fout.write(json.dumps(content).encode('utf-8'))
+            
+        return True
+    except:
+        print('Cannot decode html for {}'.format(url))
+        return False
 
 
 def extract_next_links(url, resp):
@@ -40,15 +73,17 @@ def extract_next_links(url, resp):
         else:
             ics_sub[parsed.netloc] = 1
 
+    # adding to set of visited, then saving states to files for redundancy
     visited.add(url)
+    with open('records/visited.txt', 'w') as vi, open('records/ics_sub.txt', 'w') as ic:
+        vi.write(str(visited))
+        ic.write(str(ics_sub))
     
-    print('num visited, ', len(visited))
-    print('ics_sub, ', ics_sub)
-    
-    # parse webpage
+    # parsing, then saving webpage
     soup = BeautifulSoup(resp.raw_response.content, 'lxml')
-    links = soup.find_all('a')
+    save_page(url, resp.raw_response.content)
     
+    links = soup.find_all('a')
     for link in links:
         # skip to next iteration if no href attribute found
         if not link.has_attr('href'):
@@ -73,12 +108,14 @@ def extract_next_links(url, resp):
         # adding '/' if missing
         if not path.startswith('/'):
             path = '/' + path
-        
         newLink += path
         
         # removed for consistency
         if newLink.endswith('/'):
             newLink = newLink[:-1] 
+        
+        # making all urls lowercase for consistency
+        newLink = newLink.lower()
         
         found.append(newLink)
     
@@ -124,6 +161,9 @@ def is_valid(url):
             return False
         
         if url in visited:
+            return False
+        
+        if url.endswith('.bam'):
             return False
         
         if re.match(
